@@ -1,22 +1,23 @@
 use crate::math::Vector4f;
 use gl::types::*;
 use std::ffi::{CString, NulError};
-use std::mem;
 use std::mem::MaybeUninit;
 use std::ptr::null;
 
-macro_rules! get_info_log {
-    ($get_info_fn: path, $descriptor: expr) => {{
-        let mut info_log = vec![MaybeUninit::<u8>::uninit(); 512];
-        let mut info_log_length = MaybeUninit::<GLsizei>::uninit();
-        $get_info_fn($descriptor, 512, info_log_length.as_mut_ptr(), info_log[0].as_mut_ptr() as *mut _);
+pub type GetInfoFn = unsafe fn(GLuint, GLsizei, *mut GLsizei, *mut GLchar);
 
-        info_log.set_len(info_log_length.assume_init() as usize);
-        info_log.shrink_to_fit();
+fn get_info_log(get_info_fn: GetInfoFn, descriptor: GLuint) -> String {
+    let mut info_log = vec![0u8; 512];
+    let mut info_log_length: GLsizei = 0;
 
-        let info_log = String::from_utf8_unchecked(mem::transmute(info_log));
-        info_log
-    }};
+    unsafe {
+        get_info_fn(descriptor, 512, &mut info_log_length, info_log.as_mut_ptr() as *mut _);
+    }
+
+    info_log.truncate(info_log_length as usize);
+    info_log.shrink_to_fit();
+
+    return String::from_utf8(info_log).unwrap();
 }
 
 #[allow(dead_code)]
@@ -72,11 +73,11 @@ impl Shader {
         unsafe {
             gl::CompileShader(self.0);
 
-            let mut success = MaybeUninit::<GLint>::uninit();
-            gl::GetShaderiv(self.0, gl::COMPILE_STATUS, success.as_mut_ptr());
+            let mut success: GLint = 0;
+            gl::GetShaderiv(self.0, gl::COMPILE_STATUS, &mut success);
 
-            if success.assume_init() == gl::FALSE as GLint {
-                return Err(get_info_log!(gl::GetShaderInfoLog, self.0));
+            if success == (gl::FALSE as GLint) {
+                return Err(get_info_log(gl::GetShaderInfoLog, self.0));
             }
         }
 
@@ -125,7 +126,7 @@ impl ShaderProgram {
             gl::GetProgramiv(self.0, gl::LINK_STATUS, success.as_mut_ptr());
 
             if success.assume_init() == gl::FALSE as GLint {
-                return Err(get_info_log!(gl::GetProgramInfoLog, self.0));
+                return Err(get_info_log(gl::GetProgramInfoLog, self.0));
             }
         }
 

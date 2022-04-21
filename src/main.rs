@@ -15,7 +15,8 @@ use renderer::*;
 use std::collections::VecDeque;
 use std::ops::{Add, Neg, Sub};
 use std::os::raw::*;
-use std::time::Duration;
+use std::ptr;
+use std::time::{Duration, Instant};
 use std::{mem, thread};
 
 const WINDOW_WIDTH: u32 = 800;
@@ -46,9 +47,9 @@ fn main() {
 
     gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
 
-    let mut field = SnakeGameField::create(/*10, 10*/);
+    let mut field = SnakeGameField::create();
 
-    let mut renderer = SnakeGameRenderer::setup(/*&field*/);
+    let mut renderer = SnakeGameRenderer::setup();
     renderer.prepare_renderer();
 
     loop {
@@ -129,11 +130,11 @@ struct SnakeGameRenderer {
 }
 
 impl SnakeGameRenderer {
-    fn setup(/*field: &SnakeGameField*/) -> SnakeGameRenderer {
+    fn setup() -> SnakeGameRenderer {
         let shader_program = create_shader_program();
 
-        let vertices = gen_vertices(/*&field*/);
-        let (vbo, ebo) = gen_buffer_objects(&vertices);
+        let vertices = gen_vertices();
+        let (vbo, ebo) = gen_buffer_objects(vertices.as_slice());
         let (square, quads) = gen_vertex_array_objects(&vbo, &ebo);
 
         let color_uniform = UniformLocation::get(&shader_program, "inColor");
@@ -154,12 +155,12 @@ impl SnakeGameRenderer {
     fn render(&mut self, field: &SnakeGameField) {
         fn draw_quad() {
             unsafe {
-                gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, 0 as *const _);
+                gl::DrawElements(gl::TRIANGLES, 6, gl::UNSIGNED_INT, ptr::null());
             }
         }
 
-        unsafe fn get_quad_index_unchecked<'a>(quads: &'a [VertexArrayObject], point: &Point) -> &'a VertexArrayObject {
-            quads.get_unchecked((point.x + point.y * 10) as usize)
+        const fn get_quad<'a>(quads: &'a [VertexArrayObject], point: &Point) -> &'a VertexArrayObject {
+            &quads[(point.x + point.y * 10) as usize]
         }
 
         let color_uniform = &self.color_uniform;
@@ -179,7 +180,7 @@ impl SnakeGameRenderer {
         if *snake_head != *fruit {
             self.shader_program.set_uniform_vec4(color_uniform, &FRUIT_COLOR);
 
-            let fruit_quad = unsafe { get_quad_index_unchecked(&self.quads, fruit) };
+            let fruit_quad = get_quad(&self.quads, fruit);
             fruit_quad.bind();
             draw_quad();
         }
@@ -187,12 +188,12 @@ impl SnakeGameRenderer {
         //RENDER SNAKE
         self.shader_program.set_uniform_vec4(color_uniform, &SNAKE_PART_COLOR);
 
-        let snake_head_quad = unsafe { get_quad_index_unchecked(&self.quads, snake_head) };
+        let snake_head_quad = get_quad(&self.quads, snake_head);
         snake_head_quad.bind();
         draw_quad();
 
         for tail_part in field.snake.tail.iter() {
-            let part_quad = unsafe { get_quad_index_unchecked(&self.quads, tail_part) };
+            let part_quad = get_quad(&self.quads, tail_part);
             part_quad.bind();
             draw_quad();
         }
@@ -218,7 +219,7 @@ fn create_shader_program() -> ShaderProgram {
 }
 
 #[inline]
-fn gen_vertices(/*field: &SnakeGameField*/) -> Vec<f32> {
+fn gen_vertices() -> Vec<f32> {
     // Vec<f32> - field square, field quads (for snake parts and fruit)
 
     // Vertices:
@@ -294,7 +295,7 @@ fn gen_vertices(/*field: &SnakeGameField*/) -> Vec<f32> {
 }
 
 #[inline]
-fn gen_buffer_objects(vertices: &Vec<f32>) -> (BufferObject, BufferObject) {
+fn gen_buffer_objects(vertices: &[f32]) -> (BufferObject, BufferObject) {
     let vbo = BufferObject::gen();
     vbo.bind(BufferTarget::ArrayBuffer);
 
@@ -347,7 +348,7 @@ fn gen_vertex_array_objects(vbo: &BufferObject, ebo: &BufferObject) -> (VertexAr
                 gl::FLOAT,
                 gl::FALSE,
                 VEC2_SIZE,
-                0 as *const _, //zero offset
+                ptr::null(), //zero offset
             );
             gl::EnableVertexAttribArray(0);
 
@@ -505,10 +506,7 @@ struct SnakeGameField {
 }
 
 impl SnakeGameField {
-    fn create(/*size_x: i32, size_y: i32*/) -> SnakeGameField {
-        // assert!(size_x > 1, "field width must be greater than 1");
-        // assert!(size_y > 1, "field height must be greater than 1");
-
+    fn create() -> SnakeGameField {
         let size_x = 10;
         let size_y = 10;
 
